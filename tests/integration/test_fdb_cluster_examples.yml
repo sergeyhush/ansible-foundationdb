@@ -1,0 +1,41 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    etc_foundationdb_fdb_cluster: /tmp/ansible-module-test-fdb-examples.cluster
+  tasks:
+    - file: path="{{etc_foundationdb_fdb_cluster}}" state=absent
+    - copy: content="abc:123@192.168.1.1:4500" dest="{{etc_foundationdb_fdb_cluster}}"
+
+    - name: view existing cluster values
+      fdb_cluster:
+        src: "{{ etc_foundationdb_fdb_cluster }}"
+      register: result
+
+    - debug: msg="Created cluster {{result.cluster_description}}:{{result.cluster_id}} with {{result.cluster_coordinators|length}} coordinator(s)"
+
+    - name: set coordinators
+      fdb_cluster:
+        src: "{{ etc_foundationdb_fdb_cluster }}"
+        coordinators: ['10.1.2.3:4519', '10.1.2.4:4519']
+      register: result
+    - assert:
+        that:
+          - result.changed
+          - '"10.1.2.3:4519" in result.cluster_coordinators'
+          - '"10.1.2.4:4519" in result.cluster_coordinators'
+          - result.cluster_coordinators | length == 2
+
+    - name: append new coordinator
+      fdb_cluster:
+        src: "{{ etc_foundationdb_fdb_cluster }}"
+        coordinators: ['10.1.2.5:4519']
+        state: append
+      register: result
+    - assert:
+        that:
+          - result.changed
+          - result.cluster_coordinators | length == 3
+
+    - file: path="{{etc_foundationdb_fdb_cluster}}" state=absent

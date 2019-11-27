@@ -1,0 +1,130 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    test_cluster_file: /tmp/ansible-module-test-fdb.cluster
+  tasks:
+    - name: "Preparation: remove new cluster file"
+      file:
+        path: "{{ test_cluster_file }}"
+        state:  absent
+    - name: "Preparation: create test fdb.cluster file"
+      command: mktemp
+      register: tmp
+    - name: "Preparation: populate fdb.cluster file"
+      copy:
+        content: "FoundationDB:deadbeef@10.0.1.1:4500,10.0.1.2:4501,10.0.1.3:4501"
+        dest: "{{ tmp.stdout }}"
+    - set_fact:
+        test_file: "{{ tmp.stdout }}"
+    - name: No change, just report values
+      fdb_cluster:
+        src: "{{ test_file }}"
+      register: cluster
+    - name: Assert that nothing changed
+      assert:
+        that:
+          - cluster.cluster_id == "deadbeef"
+          - cluster.cluster_description == "FoundationDB"
+
+
+    - name: "Preparation: remove new cluster file"
+      file:
+        path: "{{ test_cluster_file }}"
+        state:  absent
+    - name: Create new cluster file
+      fdb_cluster:
+        src: "{{ test_cluster_file}}"
+        description: Test123
+        id: abc123
+        coordinators:
+          - "1.1.1.1:4500"
+          - "1.1.1.2:4500"
+      register: cluster
+    - name: Test cluster file created; values returned
+      assert:
+        that:
+          - cluster.changed
+          - cluster.cluster_src == test_cluster_file
+          - cluster.cluster_description == 'Test123'
+          - cluster.cluster_id == 'abc123'
+
+
+    - name: "Preparation: remove new cluster file"
+      file:
+        path: "{{ test_cluster_file }}"
+        state:  absent
+    - name: Create new cluster file without id
+      fdb_cluster:
+        src: "{{ test_cluster_file}}"
+        description: Test123
+        coordinators:
+          - "1.1.1.1:4500"
+          - "1.1.1.2:4500"
+      register: cluster
+    - name: Test cluster file created; values returned
+      assert:
+        that:
+          - cluster.changed
+          - cluster.cluster_src == test_cluster_file
+          - cluster.cluster_description == 'Test123'
+
+
+    - name: Update values for existing file
+      fdb_cluster:
+        src: "{{ test_cluster_file}}"
+        description: 123Test
+        id: 123abc
+      register: cluster
+    - assert:
+        that:
+          - cluster.changed
+          - cluster.cluster_src == test_cluster_file
+          - cluster.cluster_description == '123Test'
+          - cluster.cluster_id == '123abc'
+
+
+    - name: Check state "present"
+      fdb_cluster:
+        src: "{{ test_cluster_file}}"
+        description: Test123
+        id: abc123
+        state: present
+        coordinators:
+          - "1.1.1.1:4500"
+          - "1.1.1.2:4500" 
+      register: cluster
+    - assert:
+        that:
+          - cluster.changed
+          - cluster.cluster_coordinators | length == 2
+
+    - name: Check state "absent"
+      fdb_cluster:
+        src: "{{ test_cluster_file}}"
+        state: absent
+        coordinators:
+          - "1.1.1.2:4500" 
+      register: cluster
+    - assert:
+        that:
+          - cluster.changed
+          - cluster.cluster_coordinators | length == 1
+          - cluster.cluster_coordinators[0] == '1.1.1.1:4500'
+
+    - name: Check state "append"
+      fdb_cluster:
+        src: "{{ test_cluster_file}}"
+        state: append
+        coordinators:
+          - "2.2.2.2:4500" 
+      register: cluster
+    - assert:
+        that:
+          - cluster.changed
+          - cluster.cluster_coordinators | length == 2
+          - '"1.1.1.1:4500" in cluster.cluster_coordinators'
+          - '"2.2.2.2:4500" in cluster.cluster_coordinators'
+      
+    - file: path="{{ test_cluster_file }}" state=absent
